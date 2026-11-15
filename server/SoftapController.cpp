@@ -338,7 +338,8 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
             if (!generatePsk(argv[3], argv[7], psk_str)) {
                 return ResponseCode::OperationFailed;
             }
-            fbuf = StringPrintf("%swpa=2\nrsn_pairwise=CCMP\nwpa_psk=%s\n", wbuf.c_str(), psk_str);
+            fbuf = StringPrintf("%swpa=2\nwpa_key_mgmt=WPA-PSK\nrsn_pairwise=CCMP\nwpa_psk=%s\n",
+                    wbuf.c_str(), psk_str);
         } else if (!strcmp(argv[6], "open")) {
             fbuf = wbuf;
         }
