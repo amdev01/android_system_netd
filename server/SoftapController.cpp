@@ -16,7 +16,9 @@
 
 #include <stdlib.h>
 #include <errno.h>
+#include <ctype.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <sys/socket.h>
@@ -37,6 +39,7 @@
 #include <android-base/file.h>
 #include <android-base/stringprintf.h>
 #include <cutils/log.h>
+#include <cutils/properties.h>
 #include <netutils/ifc.h>
 #include <private/android_filesystem_config.h>
 #include "wifi.h"
@@ -61,6 +64,29 @@ static const char HOSTAPD_CONF_FILE[]    = "/data/misc/wifi/hostapd.conf";
 static const char HOSTAPD_BIN_FILE[]    = "/system/bin/hostapd";
 static const char HOSTAPD_SOCKETS_DIR[]    = "/data/misc/wifi/sockets";
 static const char WIFI_HOSTAPD_GLOBAL_CTRL_IFACE[] = "/data/misc/wifi/hostapd/global";
+
+/*
+ * Resolve the ISO 3166 country for hostapd.conf. First valid (2 letters) of
+ * wifi.softap.country, wlan.driver.country, wifi.country_code,
+ * persist.sys.country, else "GB" (non-DFS UNII-1 allowed).
+ */
+static void getSoftapCountryCode(char *out, size_t len) {
+    static const char *const props[] = {
+        "wifi.softap.country", "wlan.driver.country",
+        "wifi.country_code", "persist.sys.country",
+    };
+    char val[PROPERTY_VALUE_MAX];
+    for (size_t i = 0; i < sizeof(props) / sizeof(props[0]); i++) {
+        property_get(props[i], val, "");
+        if (strlen(val) == 2 && isalpha((unsigned char)val[0])
+                && isalpha((unsigned char)val[1])) {
+            snprintf(out, len, "%c%c", toupper((unsigned char)val[0]),
+                     toupper((unsigned char)val[1]));
+            return;
+        }
+    }
+    snprintf(out, len, "GB");
+}
 
 SoftapController::SoftapController()
     : mPid(0) {}
@@ -280,6 +306,13 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
             channel = AP_CHANNEL_DEFAULT;
     }
 
+    /*
+     * v4xx: Prima ADD_BSS fails (status 3) on 5 GHz without a regulatory
+     * country; hostapd needs country_code + ieee80211d in the runtime conf.
+     */
+    char country[PROPERTY_VALUE_MAX];
+    getSoftapCountryCode(country, sizeof(country));
+
     std::string wbuf(StringPrintf("interface=%s\n"
             "driver=nl80211\n"
             "ctrl_interface=/data/misc/wifi/hostapd\n"
@@ -287,9 +320,11 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
             "channel=%d\n"
             "ieee80211n=1\n"
             "hw_mode=%c\n"
+            "country_code=%s\n"
+            "ieee80211d=1\n"
             "ignore_broadcast_ssid=%d\n"
             "wowlan_triggers=any\n",
-            argv[2], argv[3], channel, (channel <= 14) ? 'g' : 'a', hidden));
+            argv[2], argv[3], channel, (channel <= 14) ? 'g' : 'a', country, hidden));
 
     std::string fbuf;
     if (argc > 7) {

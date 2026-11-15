@@ -136,7 +136,7 @@ size_t TetherController::forwardingRequestCount() {
     return mForwardingRequests.size();
 }
 
-#define TETHER_START_CONST_ARG        8
+#define TETHER_START_CONST_ARG        9
 
 int TetherController::startTethering(int num_addrs, char **dhcp_ranges) {
     if (mDaemonPid != 0) {
@@ -176,6 +176,7 @@ int TetherController::startTethering(int num_addrs, char **dhcp_ranges) {
             close(pipefd[0]);
         }
 
+        /* +1 for --dhcp-broadcast=softap; ranges use set:softap tag. */
         int num_processed_args = TETHER_START_CONST_ARG + (num_addrs/2) + 1;
         char **args = (char **)malloc(sizeof(char *) * num_processed_args);
         args[num_processed_args - 1] = NULL;
@@ -188,10 +189,17 @@ int TetherController::startTethering(int num_addrs, char **dhcp_ranges) {
         args[5] = (char *)"--dhcp-option-force=43,ANDROID_METERED";
         args[6] = (char *)"--pid-file";
         args[7] = (char *)"";
+        /*
+         * v4xx: Prima 5 GHz SoftAP — stock dnsmasq unicasts DHCPOFFER to the
+         * leased IP before the STA has it; client never REQUESTs (HITL).
+         * Android dnsmasq wants --dhcp-broadcast=<tag> with matching
+         * --dhcp-range=set:<tag>,... (no Magisk/udhcpd).
+         */
+        args[8] = (char *)"--dhcp-broadcast=softap";
 
         int nextArg = TETHER_START_CONST_ARG;
         for (int addrIndex = 0; addrIndex < num_addrs; addrIndex += 2) {
-            asprintf(&(args[nextArg++]),"--dhcp-range=%s,%s,1h",
+            asprintf(&(args[nextArg++]), "--dhcp-range=set:softap,%s,%s,1h",
                      dhcp_ranges[addrIndex], dhcp_ranges[addrIndex+1]);
         }
 
